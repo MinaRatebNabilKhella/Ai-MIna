@@ -1,0 +1,45 @@
+{
+  "name": "mina-student-ai",
+  "version": "1.0.0",
+  "description": "Mina Student AI",
+  "main": "electron-main.cjs",
+  "author": "Mina Rateb",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.minarateb.minastudentai",
+    "productName": "Mina Student AI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "styles.css",
+      "config.js",
+      "core.js",
+      "views.js",
+      "app.js",
+      "xlsx-reader.js",
+      "جدول-تجريبي.xlsx",
+      "electron-main.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "Mina-Student-AI-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
