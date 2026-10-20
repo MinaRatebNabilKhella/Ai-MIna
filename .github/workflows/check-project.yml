@@ -1,41 +1,31 @@
-name: Build Windows installer
+name: Check Mina Student AI source
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: windows-latest
+  checks:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure hosted application URL
-        shell: pwsh
-        env:
-          MINA_APP_URL: ${{ vars.MINA_APP_URL || 'https://minaratebnabilkhella.github.io/Ai-MIna/' }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:MINA_APP_URL) -or -not $env:MINA_APP_URL.StartsWith('https://') -or $env:MINA_APP_URL.Contains('YOUR_')) {
-            throw 'Set repository variable MINA_APP_URL to the deployed HTTPS GitHub Pages URL before building the installer.'
-          }
-          $json = @{ url = $env:MINA_APP_URL } | ConvertTo-Json
-          Set-Content -Path electron/app-url.json -Value $json -Encoding utf8
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install desktop build dependencies
-        working-directory: electron
-        run: npm install --no-audit --no-fund
-      - name: Build Windows installer
-        working-directory: electron
-        run: npm run build:win
-      - name: Upload EXE installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mina-Student-AI-Windows-Installer
-          path: electron/dist/*.exe
-          if-no-files-found: error
-          retention-days: 30
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check core.js
+          node --check views.js
+          node --check xlsx-reader.js
+          node --check sw.js
+      - name: Validate project files and security guardrails
+        run: node scripts/check-release.mjs
+      - name: Test UTF-8 CSV reader
+        run: node scripts/test-csv-reader.mjs
