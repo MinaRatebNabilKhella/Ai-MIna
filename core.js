@@ -15,29 +15,57 @@ const GRADES = [
 ];
 const gradeOf = id => GRADES.find(g => g.id === id) || GRADES[0];
 
-// ----- تخزين محلي -----
-const LS = { users: 'mina_users', session: 'mina_session', data: id => 'mina_data_' + id };
+// ----- اتصال آمن بالخادم -----
+const LS = { data: id => 'mina_data_' + id };
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { toast('المتصفح مانع حفظ البيانات. جرّب نافذة عادية مش Private.', 'err'); return false; } }
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { toast('المتصفح منع حفظ البيانات محليًا.', 'err'); return false; } }
 };
-const getUsers = () => store.get(LS.users, []);
-const saveUsers = u => store.set(LS.users, u);
-const hasAdmin = () => getUsers().some(u => u.role === 'admin');
+let SUPABASE = null;
+let CLOUD_USERS = [];
+let CLOUD_SAVE_TIMER = null;
+let CLOUD_DIRTY = false;
+let CLOUD_DATA_CHANNEL = null;
+function cloudConfigured() {
+  return !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && /^https:\/\//.test(CFG.SUPABASE_URL) && !String(CFG.SUPABASE_URL).includes('YOUR_PROJECT') && !String(CFG.SUPABASE_ANON_KEY).includes('YOUR_'));
+}
+function initSupabase() {
+  if (SUPABASE) return SUPABASE;
+  if (!cloudConfigured() || !window.supabase?.createClient) return null;
+  SUPABASE = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+  return SUPABASE;
+}
+const getUsers = () => CLOUD_USERS;
+const saveUsers = users => { CLOUD_USERS = Array.isArray(users) ? users : []; };
+const hasAdmin = () => !!initSupabase(); // لا يوجد إعداد أدمن من المتصفح؛ صلاحيات الأدمن يحددها الخادم فقط.
 
-// ----- تشفير -----
+// ----- أدوات مساعدة -----
 async function sha256(text) {
   const enc = new TextEncoder().encode(text);
   if (window.crypto && crypto.subtle) {
     const h = await crypto.subtle.digest('SHA-256', enc);
     return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  let h = 5381; for (const b of enc) h = ((h << 5) + h + b) | 0;
-  return 'x' + (h >>> 0).toString(16);
+  throw new Error('هذا المتصفح لا يدعم التشفير المطلوب. افتح التطبيق بمتصفح حديث.');
 }
-const hashPw = (pw, salt) => sha256(salt + ':' + pw);
-const rnd = () => Math.random().toString(36).slice(2, 10);
-const approvalCodeFor = async id => (await sha256((CFG.APPROVAL_SECRET || '') + id)).slice(0, 10);
+const rnd = () => crypto.getRandomValues(new Uint32Array(2)).join('').slice(0, 12);
+const mapProfile = row => row ? ({
+  id: row.id, name: row.name || '', school: row.school || '', grade: row.grade || 'sec3',
+  email: row.email || '', role: row.role || 'student', status: row.status || 'pending',
+  phone: row.phone || '', governorate: row.governorate || '', address: row.address || '',
+  createdAt: row.created_at || row.createdAt || ''
+}) : null;
+async function fetchMyProfile() {
+  const sb = initSupabase();
+  if (!sb) return null;
+  const { data: { user }, error: authError } = await sb.auth.getUser();
+  if (authError || !user) return null;
+  const { data, error } = await sb.from('profiles').select('id,email,name,school,grade,phone,governorate,address,role,status,created_at,updated_at').eq('id', user.id).maybeSingle();
+  if (error) throw error;
+  return mapProfile(data);
+}
 
 // ----- تواريخ -----
 const pad = n => String(n).padStart(2, '0');
@@ -137,22 +165,73 @@ function defaultData() {
     settings: {
       lead: 15, morning: '08:00', evening: '20:00', fahhimni: '',
       keys: { openai: '', gemini: '', claude: '' },
-      models: { openai: 'gpt-4o-mini', gemini: 'gemini-2.5-flash', claude: 'claude-haiku-5-5' }
+      models: { openai: 'gpt-4.1-mini', gemini: 'gemini-3.8-flash', claude: 'claude-haiku-4-5' }
     },
     chat: { openai: [], gemini: [], claude: [] }
   };
 }
-function loadUD(id) {
-  const d = defaultData(), s = store.get(LS.data(id), {});
-  UD = Object.assign(d, s);
-  UD.settings = Object.assign(defaultData().settings, s.settings || {});
-  UD.settings.keys = Object.assign(defaultData().settings.keys, (s.settings || {}).keys || {});
-  UD.settings.models = Object.assign(defaultData().settings.models, (s.settings || {}).models || {});
-  UD.stats = Object.assign(defaultData().stats, s.stats || {});
-  UD.chat = Object.assign(defaultData().chat, s.chat || {});
+function applyUserData(s = {}) {
+  const base = defaultData();
+  UD = Object.assign(base, s || {});
+  UD.settings = Object.assign(defaultData().settings, (s || {}).settings || {});
+  // لا تحفظ مفاتيح API في المتصفح؛ كل استدعاءات الذكاء الاصطناعي تمر عبر الخادم.
+  UD.settings.keys = { openai: '', gemini: '', claude: '' };
+  UD.settings.models = Object.assign(defaultData().settings.models, (s || {}).settings?.models || {});
+  UD.stats = Object.assign(defaultData().stats, (s || {}).stats || {});
+  UD.chat = Object.assign(defaultData().chat, (s || {}).chat || {});
+}
+function loadUD(id) { applyUserData(store.get(LS.data(id), {})); }
+function stopCloudDataSubscription() {
+  if (CLOUD_DATA_CHANNEL && SUPABASE) { SUPABASE.removeChannel(CLOUD_DATA_CHANNEL); CLOUD_DATA_CHANNEL = null; }
 }
 let CURRENT = null; // المستخدم الحالي
-const saveUD = () => { if (CURRENT) store.set(LS.data(CURRENT.id), UD); };
+const saveUD = () => {
+  if (!CURRENT || CURRENT.role !== 'student' || CURRENT.status !== 'approved' || !UD) return;
+  store.set(LS.data(CURRENT.id), UD);
+  CLOUD_DIRTY = true;
+  const sb = initSupabase();
+  if (!sb) return;
+  clearTimeout(CLOUD_SAVE_TIMER);
+  const userId = CURRENT.id;
+  const snapshot = JSON.parse(JSON.stringify(UD));
+  CLOUD_SAVE_TIMER = setTimeout(async () => {
+    CLOUD_SAVE_TIMER = null;
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user || user.id !== userId) return;
+      const { error } = await sb.from('student_data').upsert({ user_id: userId, data: snapshot, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (error) console.error('Cloud save failed:', error.message);
+      else if (CURRENT?.id === userId && JSON.stringify(UD) === JSON.stringify(snapshot)) CLOUD_DIRTY = false;
+    } catch (e) { console.error('Cloud save failed:', e); }
+  }, 600);
+};
+async function loadCloudUserData(id) {
+  const sb = initSupabase();
+  if (!sb || !CURRENT || CURRENT.role !== 'student' || CURRENT.status !== 'approved') return;
+  const { data, error } = await sb.from('student_data').select('data').eq('user_id', id).maybeSingle();
+  if (error) throw error;
+  const local = store.get(LS.data(id), {});
+  if (data?.data) {
+    applyUserData(data.data);
+    store.set(LS.data(id), UD);
+    CLOUD_DIRTY = false;
+  } else {
+    applyUserData(local);
+    const { error: saveError } = await sb.from('student_data').upsert({ user_id: id, data: UD, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (saveError) throw saveError;
+    CLOUD_DIRTY = false;
+  }
+  stopCloudDataSubscription();
+  CLOUD_DATA_CHANNEL = sb.channel(`mina-student-data-${id}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'student_data', filter: `user_id=eq.${id}` }, payload => {
+      if (!CURRENT || CURRENT.id !== id || CURRENT.status !== 'approved' || CLOUD_DIRTY || !payload.new?.data) return;
+      if (JSON.stringify(payload.new.data) === JSON.stringify(UD)) return;
+      applyUserData(payload.new.data);
+      store.set(LS.data(id), UD);
+      if (typeof render === 'function') render();
+    })
+    .subscribe();
+}
 
 // ----- نقاط وإنجازات -----
 const BADGES = [
@@ -260,24 +339,19 @@ function chatSystemPrompt() {
     `ابدأ بالشرح المبسط ثم مثال ثم سؤال تدريبي صغير. لو مش متأكد من معلومة قول كده بصراحة. جدول الطالب النهاردة: ${sched}.`;
 }
 async function callAI(provider, messages) {
-  const key = (UD.settings.keys[provider] || '').trim(), model = (UD.settings.models[provider] || '').trim();
-  if (!key) throw new Error('NO_KEY');
-  const sys = chatSystemPrompt();
-  let r, j;
-  if (provider === 'openai') {
-    r = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model, messages: [{ role: 'system', content: sys }, ...messages] }) });
-    j = await r.json(); if (!r.ok) throw new Error(j.error?.message || 'خطأ ' + r.status);
-    return j.choices[0].message.content;
+  const sb = initSupabase();
+  if (!sb) throw new Error('CLOUD_NOT_CONFIGURED');
+  const { data, error } = await sb.functions.invoke('ai-chat', { body: { provider, messages } });
+  if (error) {
+    const context = error.context;
+    if (context && typeof context.json === 'function') {
+      try {
+        const body = await context.json();
+        throw new Error(body.error || body.message || error.message || 'تعذر الاتصال بخدمة الذكاء الاصطناعي.');
+      } catch (e) { if (e instanceof Error && e.message && !e.message.includes('Unexpected')) throw e; }
+    }
+    throw new Error(error.message || 'تعذر الاتصال بخدمة الذكاء الاصطناعي.');
   }
-  if (provider === 'claude') {
-    r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model, max_tokens: 1500, system: sys, messages }) });
-    j = await r.json(); if (!r.ok) throw new Error(j.error?.message || 'خطأ ' + r.status);
-    return j.content.map(c => c.text || '').join('');
-  }
-  if (provider === 'gemini') {
-    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) }) });
-    j = await r.json(); if (!r.ok) throw new Error(j.error?.message || 'خطأ ' + r.status);
-    return (j.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('') || 'مفيش رد.';
-  }
-  throw new Error('مزود غير معروف');
+  if (data?.error) throw new Error(data.error);
+  return data?.reply || 'مفيش رد من النموذج.';
 }

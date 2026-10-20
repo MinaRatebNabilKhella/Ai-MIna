@@ -1,0 +1,18 @@
+Mina Student AI — Release checks
+================================
+
+Executed successfully in the preparation environment:
+- JavaScript syntax check: app.js, core.js, views.js, xlsx-reader.js, sw.js.
+- Release guardrail check: required files, manifest fields, critical database/RLS markers, frontend secret-pattern scan, and schema/migration file equality.
+- CSV reader functional test: UTF-8 BOM in Arabic headers, quoted commas, and escaped quotes.
+- JSON parse: manifest.webmanifest, electron/package.json, electron/app-url.json.
+- YAML syntax parse: all four GitHub Actions workflow files.
+
+Not completed or verified from this environment:
+- No authenticated write session was available to push changes to GitHub.
+- No live Supabase project credentials were available, so the migration and Edge Functions were not applied to a live project.
+- The Windows EXE was not built here; the Pages workflow is configured to build and upload it after successful cloud deployment.
+- Native Android APK / iOS IPA are not included; Android, iPhone, and desktop use the installable PWA. A native signed IPA is not part of this free workflow.
+- The Windows publishing script was not executed here; it requires Git for Windows and the repository owner's GitHub sign-in.
+
+Do not release to students until GitHub Actions reports success and real test accounts have verified signup, email confirmation, admin access, approve/reject/disable states, code expiry, daily limits, Gemini, YouTube, and cross-device synchronization.

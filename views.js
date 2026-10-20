@@ -1,7 +1,7 @@
 'use strict';
 // ===== الشاشات =====
-let AUTH_TAB = 'login', AUTH_ERR = '', AUTH_INFO = '';
-let NB_DATE = todayStr(), CHAT_PROVIDER = 'openai', CHAT_BUSY = false, HELP_RESULT = null, PENDING_IMPORT = null;
+let AUTH_TAB = 'login', AUTH_ERR = '', AUTH_INFO = '', PASSWORD_RECOVERY = false;
+let NB_DATE = todayStr(), CHAT_PROVIDER = 'gemini', CHAT_BUSY = false, HELP_RESULT = null, PENDING_IMPORT = null;
 
 const NAV = [
   ['home', '🏠', 'الرئيسية'], ['schedule', '📅', 'الجدول'], ['notebook', '📝', 'النوتبوك'],
@@ -23,9 +23,25 @@ function shell(route, inner) {
     </main></div>`;
 }
 
+// ---------- إعداد الخادم ----------
+function viewCloudSetup() {
+  return `<div class="auth-wrap"><div class="auth-card stack"><div class="logo">${esc(CFG.APP_NAME_AR || 'مينا ستودنت AI')}</div>
+    <h2>التطبيق محتاج إعداد الاتصال السحابي</h2>
+    <p class="muted">النسخة الآمنة دي لا تستخدم حسابات محلية أو إعداد أدمن من المتصفح. لازم تضيف رابط مشروع Supabase ومفتاح anon العام في config.js، ثم تطبّق ملف قاعدة البيانات الموجود داخل مجلد supabase.</p>
+    <div class="info">ما تحطش Gemini API Key أو Service Role Key داخل config.js أو GitHub. المفاتيح السرية مكانها إعدادات الخادم فقط.</div>
+    <p class="small muted">بعد إكمال إعداد الخادم، حدّث الصفحة لعرض شاشة الدخول.</p>
+  </div></div>`;
+}
+
 // ---------- دخول / تسجيل ----------
 function viewAuth() {
-  const gradeOpts = GRADES.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  if (PASSWORD_RECOVERY) {
+    return `<div class="auth-wrap"><div class="auth-card stack"><div class="logo">${esc(CFG.APP_NAME_AR || 'مينا ستودنت AI')}</div><h2>تعيين كلمة مرور جديدة</h2>
+      <p class="muted">اكتب كلمة مرور جديدة لحسابك.</p>${AUTH_ERR ? `<div class="err">${esc(AUTH_ERR)}</div>` : ''}
+      <form data-form="updatePassword" class="stack"><div class="field"><label>كلمة المرور الجديدة</label><input type="password" name="pw" required minlength="8" autocomplete="new-password"></div>
+      <div class="field"><label>تأكيد كلمة المرور</label><input type="password" name="pw2" required minlength="8" autocomplete="new-password"></div><button class="btn primary">حفظ كلمة المرور</button></form></div></div>`;
+  }
+  const gradeOpts = GRADES.map(g => `<option value="${g.id}" ${g.id === 'sec3' ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
   const err = AUTH_ERR ? `<div class="err">${esc(AUTH_ERR)}</div>` : '';
   const info = AUTH_INFO ? `<div class="info">${esc(AUTH_INFO)}</div>` : '';
   const form = AUTH_TAB === 'login' ? `
@@ -37,6 +53,9 @@ function viewAuth() {
       <div class="field"><label>الاسم بالكامل</label><input type="text" name="name" required></div>
       <div class="field"><label>اسم المدرسة / الكلية</label><input type="text" name="school" required></div>
       <div class="field"><label>السنة الدراسية</label><select name="grade">${gradeOpts}</select></div>
+      <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" required autocomplete="tel" inputmode="tel" placeholder="01xxxxxxxxx"></div>
+      <div class="field"><label>المحافظة</label><input type="text" name="governorate" required autocomplete="address-level1"></div>
+      <div class="field"><label>العنوان</label><input type="text" name="address" required autocomplete="street-address"></div>
       <div class="field"><label>الإيميل</label><input type="email" name="email" required autocomplete="username"></div>
       <div class="field"><label>الباسورد (6 حروف على الأقل)</label><input type="password" name="pw" required minlength="6" autocomplete="new-password"></div>
       <div class="field"><label>أكّد الباسورد</label><input type="password" name="pw2" required minlength="6" autocomplete="new-password"></div>
@@ -46,36 +65,26 @@ function viewAuth() {
     <div class="logo">${esc(CFG.APP_NAME_AR)}</div><p class="muted">مساعدك الذكي للمذاكرة وتنظيم الوقت</p>
     <div class="tabs"><button data-act="authTab" data-tab="login" class="${AUTH_TAB === 'login' ? 'on' : ''}">دخول</button><button data-act="authTab" data-tab="register" class="${AUTH_TAB === 'register' ? 'on' : ''}">حساب جديد</button></div>
     ${form}
-    ${hasAdmin() ? '' : `<p class="small" style="margin-top:1rem"><a href="#/owner-setup">إعداد حساب الأدمن (أول مرة)</a></p>`}
   </div></div>`;
 }
-function viewOwnerSetup() {
-  return `<div class="auth-wrap"><div class="auth-card"><div class="logo">إعداد الأدمن</div>
-    <p class="muted">أنشئ حساب صاحب التطبيق. الحساب ده بيشوف طلبات التسجيل ويوافق عليها أو يرفضها.</p>
-    ${AUTH_ERR ? `<div class="err">${esc(AUTH_ERR)}</div>` : ''}
-    <form data-form="ownerSetup">
-      <div class="field"><label>الاسم</label><input type="text" name="name" required></div>
-      <div class="field"><label>إيميل الأدمن</label><input type="email" name="email" required autocomplete="username"></div>
-      <div class="field"><label>باسورد الأدمن (6 حروف على الأقل)</label><input type="password" name="pw" required minlength="6" autocomplete="new-password"></div>
-      <button class="btn primary" style="width:100%">إنشاء الأدمن</button></form>
-    <p class="small"><a href="#/">رجوع</a></p></div></div>`;
-}
-function viewPending(approvalCode) {
+function viewPending() {
   const u = CURRENT;
-  const reqCode = btoa(unescape(encodeURIComponent(JSON.stringify({ id: u.id, name: u.name, school: u.school, grade: u.grade, email: u.email, salt: u.salt, ph: u.ph, at: u.createdAt }))));
-  const rejected = u.status === 'rejected';
+  const status = u.status;
+  const rejected = status === 'rejected';
+  const deleted = status === 'deleted';
+  const phone = String(CFG.SUPPORT_WHATSAPP || '').replace(/\D/g, '');
+  const whatsAppUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(`مرحبًا، أنا ${u.name}، وبريدي ${u.email}. أستفسر عن حالة حسابي في ${CFG.APP_NAME_AR}.`)}` : '';
+  const heading = rejected ? 'تم رفض طلب الحساب' : deleted ? 'الحساب موقوف' : 'طلبك قيد المراجعة ⏳';
+  const message = rejected ? 'الأدمن رفض طلب التسجيل. لو شايف إن ده حصل بالخطأ، تواصل مع الدعم.' :
+    deleted ? 'الحساب ده تم إيقافه، ومش هتقدر تدخل بياناته. تواصل مع الدعم للمراجعة.' :
+    `أهلًا ${u.name}، حسابك مستني موافقة الأدمن. تقدر تتواصل معاه على واتساب، وهيبعت لك رمز الموافقة بعد المراجعة.`;
   return `<div class="auth-wrap"><div class="auth-card stack">
-    <div class="logo">${esc(CFG.APP_NAME_AR)}</div>
-    ${rejected ? `<div class="err">تم رفض طلب تسجيلك. تواصل مع صاحب التطبيق.</div>` :
-      `<h2>طلبك قيد المراجعة ⏳</h2><p>أهلاً ${esc(u.name)}، حسابك مستني موافقة الأدمن. أول ما يوافق تقدر تدخل.</p>
-      <div class="card soft stack"><strong>لو النسخة دي شغالة على جهازك أنت (مش جهاز الأدمن):</strong>
-        <p class="small muted">ابعت "رمز الطلب" ده للأدمن، وهو هيرد عليك برمز موافقة تكتبه تحت.</p>
-        <div class="code">${esc(reqCode)}</div>
-        <button class="btn sm" data-act="copyText" data-text="${esc(reqCode)}">نسخ رمز الطلب</button>
-        <form data-form="approvalCode"><label>رمز الموافقة</label><div class="row"><input type="text" name="code" class="grow" style="direction:ltr" required><button class="btn primary">تفعيل</button></div></form>
-      </div>`}
+    <div class="logo">${esc(CFG.APP_NAME_AR)}</div><h2>${heading}</h2><p>${esc(message)}</p>
+    ${status === 'pending' ? `<div class="card soft stack"><strong>رمز الموافقة</strong><p class="small muted">بعد ما تستلم الرمز من الأدمن، اكتبه هنا لتفعيل الحساب.</p>
+      <form data-form="approvalCode"><label>رمز الموافقة</label><div class="row"><input type="text" name="code" class="grow" style="direction:ltr" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" required maxlength="10"><button class="btn primary">تفعيل</button></div></form></div>` : ''}
+    ${whatsAppUrl ? `<a class="btn primary" target="_blank" rel="noopener" href="${esc(whatsAppUrl)}">تواصل مع الدعم على واتساب</a>` : `<p class="muted small">رقم الدعم لم يتم ضبطه بعد.</p>`}
     ${AUTH_ERR ? `<div class="err">${esc(AUTH_ERR)}</div>` : ''}
-    <div class="row"><button class="btn" data-act="recheck">تحقق من الموافقة</button><button class="btn" data-act="logout">خروج</button></div>
+    <div class="row"><button class="btn" data-act="recheck">تحقق من الحالة</button><button class="btn" data-act="logout">خروج</button></div>
   </div></div>`;
 }
 
@@ -149,8 +158,8 @@ function helpLinks(subject, topic) {
   const enc = encodeURIComponent;
   const aiq = `اشرحلي ${q} بالعامية المصرية المبسطة لطالب في ${g.name}. ابدأ بالفكرة الأساسية، ثم مثال محلول، ثم 3 أسئلة تدريب بإجاباتها.`;
   const L = [
-    { ic: '▶️', t: 'فيديوهات يوتيوب (الأعلى مشاهدة)', d: `شرح "${q}" مرتب بالأكثر مشاهدة`, u: `https://www.youtube.com/results?search_query=${enc('شرح ' + q + ' ' + g.name)}&sp=CAM%253D`, free: true },
-    { ic: '▶️', t: 'فيديوهات يوتيوب (الأحدث)', d: 'لو المنهج اتغير، شوف أحدث شرح', u: `https://www.youtube.com/results?search_query=${enc('شرح ' + q + ' ' + g.name)}&sp=CAI%253D`, free: true },
+    { ic: '▶️', t: 'بحث يوتيوب عن شرح الدرس', d: `نتائج فيديوهات لعبارة "${q}" والمرحلة ${g.name}`, u: `https://www.youtube.com/results?search_query=${enc('شرح ' + q + ' ' + g.name)}`, free: true },
+    { ic: '▶️', t: 'بحث يوتيوب عن أحدث شرح', d: 'مفيد لو المنهج اتغير حديثًا', u: `https://www.youtube.com/results?search_query=${enc('شرح ' + q + ' ' + g.name + ' المنهج الجديد')}&sp=CAI`, free: true },
     { ic: '🤖', t: 'ChatGPT (النسخة المجانية)', d: 'السؤال جاهز ومتكتب جواه', u: `https://chatgpt.com/?q=${enc(aiq)}`, free: true },
     { ic: '✨', t: 'Gemini', d: 'انسخ السؤال والصقه هناك', u: 'https://gemini.google.com/', free: true, copy: aiq },
     { ic: '📓', t: 'NotebookLM', d: 'ارفع المحاضرة/الملخص PDF واطلب منه ملخص وأسئلة', u: 'https://notebooklm.google.com/', free: true },
@@ -168,7 +177,8 @@ function viewHelp() {
   if (HELP_RESULT) {
     const { L, aiq } = helpLinks(HELP_RESULT.subject, HELP_RESULT.topic);
     res = `<div class="card"><h3>ترشيحات لـ "${esc([HELP_RESULT.subject, HELP_RESULT.topic].filter(Boolean).join(' - '))}"</h3>
-      <p class="muted small">كلها مجانية. ترتيب يوتيوب بالأكثر مشاهدة (مفيش طريقة نعرف التقييم الحقيقي من غير سيرفر، ده هيتضاف في النسخة الجاية).</p>
+      <p class="muted small">الفيديوهات التالية تُجلب من YouTube حسب المادة والدرس والمرحلة، وليست ضمانًا لجودة المدرّس. راجع عنوان الفيديو والقناة قبل الاعتماد عليه.</p>
+      ${Array.isArray(HELP_RESULT.videos) && HELP_RESULT.videos.length ? `<h3>🎯 فيديوهات محددة للدرس</h3><div class="grid two">${HELP_RESULT.videos.map(v => `<div class="card stack">${v.thumbnail ? `<img src="${esc(v.thumbnail)}" alt="" loading="lazy" style="width:100%;border-radius:12px;object-fit:cover;max-height:200px">` : ''}<strong>${esc(v.title)}</strong><p class="muted small">القناة: ${esc(v.channel || 'غير معروف')}${v.publishedAt ? ` · ${esc(String(v.publishedAt).slice(0,10))}` : ''}</p><a class="btn sm primary" target="_blank" rel="noopener" href="${esc(v.url)}">شاهد الفيديو المحدد</a></div>`).join('')}</div>` : `<div class="info">لو لم تظهر فيديوهات محددة، تأكد أن الأدمن أضاف مفتاح YouTube Data API إلى Secrets في الخادم. تظل روابط البحث البديلة متاحة أدناه.</div>`}
       <div class="grid two">${L.map(l => `<div class="card"><h3>${l.ic} ${esc(l.t)} <span class="pill ok">مجاني</span></h3><p class="muted small">${esc(l.d)}</p>
         <div class="row"><a class="btn sm primary" target="_blank" rel="noopener" href="${esc(l.u)}">افتح</a>${l.copy ? `<button class="btn sm" data-act="copyText" data-text="${esc(l.copy)}">نسخ السؤال</button>` : ''}</div></div>`).join('')}</div>
       <p style="margin-top:1rem"><button class="btn primary" data-act="askInChat" data-q="${esc(aiq)}">اسأل الشات اللي جوه التطبيق دلوقتي 💬</button></p></div>`;
@@ -187,9 +197,8 @@ function viewChat() {
   const tabs = `<div class="row">${Object.entries(PROVIDERS).map(([k, v]) => `<button class="btn sm ${k === p ? 'primary' : ''}" data-act="chatProv" data-p="${k}">${esc(v.name)}</button>`).join('')}</div>`;
   let body;
   if (P.api) {
-    const hasKey = (UD.settings.keys[p] || '').trim();
     const msgs = UD.chat[p] || [];
-    body = `${hasKey ? '' : `<div class="info">محتاج مفتاح API لـ ${esc(P.name)}. <a href="#/settings">حطه في الإعدادات</a> (بيتحفظ على جهازك بس). أو افتح <a target="_blank" rel="noopener" href="${P.link}">${esc(P.name)}</a> مباشرة.</div>`}
+    body = `<div class="info">الرسائل بتمر على الخادم، ومفتاح API مش موجود في كود الموقع. الحد الافتراضي للطالب 20 طلب ذكاء اصطناعي يوميًا. لو الخدمة مش مفعّلة للمزوّد ده، استخدم الرابط الخارجي: <a target="_blank" rel="noopener" href="${P.link}">${esc(P.name)}</a>.</div>
       <div class="chat-box" id="chatBox">${msgs.length ? msgs.map(m => `<div class="msg ${m.role}">${fmtMsg(m.content)}</div>`).join('') : '<div class="msg sys">اسألني عن أي درس. ممكن أشرحه، أديك أمثلة، أو أختبرك.</div>'}${CHAT_BUSY ? '<div class="msg sys">بيكتب...</div>' : ''}</div>
       <form data-form="chat" class="row"><input type="text" name="q" class="grow" placeholder="اكتب سؤالك هنا..." autocomplete="off" required ${CHAT_BUSY ? 'disabled' : ''}><button class="btn primary" ${CHAT_BUSY ? 'disabled' : ''}>إرسال</button><button type="button" class="btn" data-act="clearChat">مسح</button></form>`;
   } else {
@@ -225,15 +234,17 @@ function aiPrompt() {
 
 بعد ما أخلص إجاباتي، اعمل لي جدول أسبوعي واقعي يشمل الحصص + وقت مذاكرة + مراجعة + راحة، وراعي إن المواد الأصعب تتذاكر في وقت تركيزي العالي.
 
-مهم جداً: سلّم الناتج كملف Excel (.xlsx) قابل للتحميل، شيت واحد، وأول صف عناوين بالأسماء دي بالظبط وبالترتيب ده:
-اليوم | التاريخ | المادة | الدرس/الموضوع | من | إلى | النوع | ملاحظات
+مهم جداً: الناتج الأساسي لازم يكون ملف CSV قابلًا للتحميل بترميز UTF-8 مع BOM (UTF-8-SIG)، وليس مجرد جدول داخل المحادثة. ملف CSV ده هو المطلوب الأساسي للتطبيق. استخدم شيت واحد منطقيًا، وأول صف عناوين يحتوي على 8 خلايا منفصلة بهذه الأسماء بالضبط وبالترتيب التالي، مع فاصلة إنجليزية بين كل خلية (ولا تكتب علامة | داخل الخلايا):
+اليوم,التاريخ,المادة,الدرس/الموضوع,من,إلى,النوع,ملاحظات
 
 القواعد:
 - اليوم: اسم عربي (السبت، الأحد، الاثنين، الثلاثاء، الأربعاء، الخميس، الجمعة) للمواعيد الأسبوعية المتكررة.
 - التاريخ: سيبه فاضي للمواعيد الأسبوعية، واكتبه بصيغة YYYY-MM-DD للامتحانات أو المواعيد لمرة واحدة.
 - من / إلى: توقيت 24 ساعة بصيغة HH:MM (مثال 16:30).
 - النوع: واحد من (حصة، مذاكرة، مراجعة، امتحان، راحة).
-- لو مش قادر تعمل ملف Excel، اطبع الجدول بصيغة CSV بنفس الأعمدة.`;
+- احفظ الملف باسم جدول-المذاكرة-UTF8.csv، بترميز UTF-8 مع BOM (UTF-8-SIG)، وفاصل فاصلة إنجليزية (,) وعلامات اقتباس حول الخلايا التي تحتوي فواصل.
+- لا تستخدم CSV العادي بترميز Windows/ANSI. يجب أن تظل الحروف العربية سليمة عند فتح الملف في Excel.
+- لو قدرت أيضًا إنشاء XLSX كملف إضافي فمسموح، لكن ملف CSV UTF-8 هو الملف الأساسي المطلوب للتطبيق.`;
 }
 function viewSetup() {
   return `<div class="stack"><h1>📥 رفع الجدول</h1>
@@ -263,35 +274,40 @@ function viewSettings() {
   return `<div class="stack"><h1>⚙️ الإعدادات</h1>
     <form data-form="settings" class="stack">
     <div class="card stack"><h3>🔔 التنبيهات</h3>
-      <p class="muted small">التنبيهات بتشتغل والتطبيق مفتوح في المتصفح (تاب مفتوح). الإشعارات وهو مقفول محتاجة النسخة اللي فيها سيرفر.</p>
+      <p class="muted small">التنبيهات المحلية تعمل أثناء فتح التطبيق. الإشعارات أثناء إغلاقه تحتاج إلى خدمة Push على الخادم.</p>
       <div class="row">حالة إشعارات المتصفح: <span class="pill ${notif === 'granted' ? 'ok' : 'warn'}">${notif === 'granted' ? 'مفعّلة' : notif === 'denied' ? 'محظورة من المتصفح' : notif === 'unsupported' ? 'غير مدعومة' : 'غير مفعّلة'}</span>${notif === 'default' ? `<button type="button" class="btn sm primary" data-act="enableNotif">تفعيل</button>` : ''}</div>
       <div class="grid three"><div><label>نبّهني قبل الموعد بـ (دقيقة)</label><input type="number" name="lead" min="0" max="120" value="${s.lead}"></div>
       <div><label>ملخص الصبح الساعة</label><input type="time" name="morning" value="${s.morning}"></div>
       <div><label>مراجعة المساء الساعة</label><input type="time" name="evening" value="${s.evening}"></div></div></div>
-    <div class="card stack"><h3>🤖 مفاتيح الذكاء الاصطناعي (للشات)</h3>
-      <p class="muted small">المفاتيح بتتحفظ في متصفحك بس ومبتتبعتش لأي مكان غير الشركة نفسها. ماتحطش مفتاح على جهاز مش بتاعك.</p>
-      ${['openai', 'gemini', 'claude'].map(k => `<div class="grid two"><div><label>مفتاح ${PROVIDERS[k].name}</label><input type="password" name="key_${k}" value="${esc(s.keys[k])}" autocomplete="off" style="direction:ltr"></div><div><label>اسم الموديل</label><input type="text" name="model_${k}" value="${esc(s.models[k])}" style="direction:ltr"></div></div>`).join('')}
-      <div><label>رابط منصة فهمني (الرابط الرسمي من وزارة التربية والتعليم)</label><input type="text" name="fahhimni" value="${esc(s.fahhimni)}" placeholder="https://..." style="direction:ltr"></div></div>
+    <div class="card stack"><h3>🤖 الذكاء الاصطناعي</h3>
+      <p>مفاتيح الذكاء الاصطناعي محفوظة في أسرار الخادم، وليست في المتصفح أو حساب الطالب. النموذج الافتراضي لـ Gemini هو <code dir="ltr">gemini-3.8-flash</code>.</p>
+      <p class="muted small">الحد الافتراضي 20 طلبًا لكل طالب يوميًا، مع حد لطول الرسالة والإجابة. الأرقام قابلة للتغيير في إعدادات الخادم.</p>
+      <div class="info">لا تكتب API Key في هذه الصفحة. إذا ظهرت مشكلة، اطلب من الأدمن مراجعة إعدادات الخدمة.</div>
+      <div><label>رابط منصة فهمني (اختياري)</label><input type="url" name="fahhimni" value="${esc(s.fahhimni)}" placeholder="https://..." style="direction:ltr"></div></div>
     <div><button class="btn primary">حفظ الإعدادات</button></div></form>
-    <div class="card stack"><h3>💾 بياناتي</h3><div class="row"><button class="btn" data-act="exportData">تصدير نسخة احتياطية</button><label class="btn" style="margin:0;color:inherit">استيراد نسخة<input type="file" accept=".json" data-change="importData" style="display:none"></label><button class="btn bad" data-act="resetData">مسح كل بياناتي</button></div></div></div>`;
+    <div class="card stack"><h3>💾 بياناتي</h3><div class="row"><button class="btn" data-act="exportData">تصدير نسخة احتياطية</button><label class="btn" style="margin:0;color:inherit">استيراد نسخة<input type="file" accept=".json" data-change="importData" style="display:none"></label><button class="btn bad" data-act="resetData">مسح كل بياناتي</button></div><p class="muted small">البيانات متزامنة عبر حسابك على الخادم، والتصدير نسخة احتياطية إضافية فقط.</p></div></div>`;
 }
 
 // ---------- الأدمن ----------
 let ADMIN_CODES = {};
+function normalizePhoneForWhatsApp(raw) {
+  let phone = String(raw || '').replace(/\D/g, '');
+  if (phone.startsWith('00')) phone = phone.slice(2);
+  else if (phone.startsWith('0')) phone = '20' + phone.slice(1);
+  return phone.length >= 10 ? phone : '';
+}
 function viewAdmin() {
   if (CURRENT.role !== 'admin') return '<div class="err">للأدمن فقط.</div>';
   const users = getUsers().filter(u => u.role !== 'admin').sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   const pend = users.filter(u => u.status === 'pending').length;
-  const pill = s => s === 'approved' ? '<span class="pill ok">مقبول</span>' : s === 'rejected' ? '<span class="pill bad">مرفوض</span>' : '<span class="pill warn">في الانتظار</span>';
-  return `<div class="stack"><h1>🛡️ لوحة الأدمن</h1>
-    <div class="grid three"><div class="card"><h3>${users.length}</h3><p class="muted small">إجمالي الطلبات</p></div><div class="card"><h3>${pend}</h3><p class="muted small">في الانتظار</p></div><div class="card"><h3>${users.filter(u => u.status === 'approved').length}</h3><p class="muted small">مقبولين</p></div></div>
-    <div class="card stack"><h3>استيراد طلب تسجيل من رمز</h3><p class="muted small">لو طالب سجّل على نسخته هو وبعتلك "رمز الطلب"، الصقه هنا.</p>
-      <form data-form="importRequest" class="row"><input type="text" name="code" class="grow" style="direction:ltr" required placeholder="رمز الطلب"><button class="btn primary">استيراد</button></form></div>
-    <div class="card"><h3>الطلبات والمستخدمين</h3>
-      <p class="muted small">الباسورد متخزن مشفّر ومش بيتعرض لأي حد (ولا ليك) — ده الأمان الصحيح. لو طالب نسي باسورده اعمله "تعيين باسورد جديد".</p>
-      <div class="scroll-x"><table><thead><tr><th>الاسم</th><th>المدرسة</th><th>السنة</th><th>الإيميل</th><th>الحالة</th><th>رمز الموافقة</th><th></th></tr></thead><tbody>
-      ${users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.school)}</td><td>${esc(gradeOf(u.grade).name)}</td><td style="direction:ltr;text-align:right">${esc(u.email)}</td><td>${pill(u.status)}</td>
-        <td><button class="btn sm" data-act="showCode" data-id="${u.id}">${ADMIN_CODES[u.id] ? `<span class="code" style="padding:0">${ADMIN_CODES[u.id]}</span>` : 'إظهار'}</button></td>
-        <td><div class="row">${u.status !== 'approved' ? `<button class="btn sm ok" data-act="setStatus" data-id="${u.id}" data-s="approved">قبول</button>` : ''}${u.status !== 'rejected' ? `<button class="btn sm bad" data-act="setStatus" data-id="${u.id}" data-s="rejected">رفض</button>` : ''}<button class="btn sm" data-act="resetPw" data-id="${u.id}">باسورد جديد</button><button class="btn sm bad" data-act="delUser" data-id="${u.id}">حذف</button></div></td></tr>`).join('') || '<tr><td colspan="7" class="muted">مفيش طلبات لسه.</td></tr>'}
+  const pill = s => s === 'approved' ? '<span class="pill ok">مقبول</span>' : s === 'rejected' ? '<span class="pill bad">مرفوض</span>' : s === 'deleted' ? '<span class="pill bad">موقوف</span>' : '<span class="pill warn">في الانتظار</span>';
+  return `<div class="stack"><h1>🛡️ لوحة الأدمن</h1>${ADMIN_LOAD_ERROR ? `<div class="err">${esc(ADMIN_LOAD_ERROR)} <button class="btn sm" onclick="location.reload()">إعادة تحميل</button></div>` : ''}
+    <div class="grid three"><div class="card"><h3>${users.length}</h3><p class="muted small">إجمالي حسابات الطلاب</p></div><div class="card"><h3>${pend}</h3><p class="muted small">في الانتظار</p></div><div class="card"><h3>${users.filter(u => u.status === 'approved').length}</h3><p class="muted small">مقبولين</p></div></div>
+    <div class="card"><h3>الطلاب والحسابات</h3>
+      <p class="muted small">التحكم في الصلاحيات يتم من الخادم. الإيقاف يحتفظ بسجل الحالة، لذلك سيظهر للطالب أن الحساب موقوف بدلًا من السماح له باستخدام بياناته.</p>
+      <div class="scroll-x"><table><thead><tr><th>الاسم</th><th>المدرسة</th><th>السنة</th><th>الإيميل</th><th>الهاتف</th><th>المحافظة / العنوان</th><th>الحالة</th><th>استخدام اليوم (AI / YouTube)</th><th>رمز الموافقة</th><th>إجراءات</th></tr></thead><tbody>
+      ${users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.school)}</td><td>${esc(gradeOf(u.grade).name)}</td><td style="direction:ltr;text-align:right">${esc(u.email)}</td><td dir="ltr">${esc(u.phone)}</td><td>${esc([u.governorate, u.address].filter(Boolean).join(' — '))}</td><td>${pill(u.status)}</td><td>${(ADMIN_USAGE[u.id]?.ai || 0)} / 20 AI · ${(ADMIN_USAGE[u.id]?.youtube || 0)} / 10 فيديو</td>
+        <td>${u.status === 'pending' ? (ADMIN_CODES[u.id] ? `<div class="stack"><code class="code" dir="ltr">${esc(ADMIN_CODES[u.id])}</code><button class="btn sm" data-act="copyApprovalCode" data-id="${u.id}">نسخ الرمز</button>${normalizePhoneForWhatsApp(u.phone) ? `<a class="btn sm" target="_blank" rel="noopener" href="${esc(`https://wa.me/${normalizePhoneForWhatsApp(u.phone)}?text=${encodeURIComponent(`مرحبًا ${u.name}، رمز الموافقة لتفعيل حسابك في ${CFG.APP_NAME_AR} هو: ${ADMIN_CODES[u.id]}. الرمز صالح لمدة 30 دقيقة، وبعدها يلزم إصدار رمز جديد.`)}`)}">إرسال عبر واتساب</a>` : ''}</div>` : `<button class="btn sm" data-act="showCode" data-id="${u.id}">إنشاء رمز</button>`) : '—'}</td>
+        <td><div class="row">${u.status !== 'approved' && u.status !== 'deleted' ? `<button class="btn sm ok" data-act="setStatus" data-id="${u.id}" data-s="approved">قبول</button>` : ''}${u.status !== 'rejected' && u.status !== 'deleted' ? `<button class="btn sm bad" data-act="setStatus" data-id="${u.id}" data-s="rejected">رفض</button>` : ''}${u.status === 'rejected' || u.status === 'deleted' ? `<button class="btn sm ok" data-act="setStatus" data-id="${u.id}" data-s="approved">إعادة تفعيل</button>` : ''}<button class="btn sm" data-act="exportStudentData" data-id="${u.id}">تنزيل بيانات الطالب</button><button class="btn sm" data-act="resetPw" data-id="${u.id}">إرسال رابط تغيير الباسورد</button><button class="btn sm bad" data-act="delUser" data-id="${u.id}">إيقاف</button></div></td></tr>`).join('') || '<tr><td colspan="10" class="muted">مفيش حسابات طلاب لسه.</td></tr>'}
       </tbody></table></div></div></div>`;
 }
