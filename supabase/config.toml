@@ -1,0 +1,7 @@
+project_id = "ulvkvvjjegiecvkjuiag"
+
+[functions.ai-chat]
+verify_jwt = true
+
+[functions.youtube-recommendations]
+verify_jwt = true

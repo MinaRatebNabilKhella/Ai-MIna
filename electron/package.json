@@ -1,0 +1,36 @@
+{
+  "name": "mina-student-ai-desktop",
+  "version": "1.0.0",
+  "description": "Desktop wrapper for the hosted Mina Student AI PWA",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "build:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.minarateb.studentai",
+    "productName": "Mina Student AI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "app-url.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Mina-Student-AI-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
