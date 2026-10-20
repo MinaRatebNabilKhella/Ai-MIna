@@ -1,0 +1,111 @@
+name: Deploy Mina Student AI to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      site_url: ${{ steps.deployment.outputs.page_url }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate public cloud configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SUPABASE_URL" || "$SUPABASE_URL" != https://*.supabase.co || "$SUPABASE_URL" == *YOUR_* ]]; then
+            echo "Missing or invalid repository variable SUPABASE_URL." >&2
+            exit 1
+          fi
+          if [[ -z "$SUPABASE_ANON_KEY" || "$SUPABASE_ANON_KEY" == *YOUR_* ]]; then
+            echo "Missing repository variable SUPABASE_ANON_KEY." >&2
+            exit 1
+          fi
+          node --check app.js
+          node --check core.js
+          node --check views.js
+          node --check xlsx-reader.js
+          node --check sw.js
+      - name: Generate public runtime config
+        shell: pwsh
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SUPPORT_WHATSAPP: ${{ vars.SUPPORT_WHATSAPP || '201202166725' }}
+        run: |
+          $settings = @{
+            APP_NAME_AR = 'مينا ستودنت AI'
+            APP_NAME_EN = 'Mina Student AI'
+            SUPABASE_URL = $env:SUPABASE_URL
+            SUPABASE_ANON_KEY = $env:SUPABASE_ANON_KEY
+            ADMIN_EMAIL = 'minaratebnabil1@gmail.com'
+            SUPPORT_WHATSAPP = $env:SUPPORT_WHATSAPP
+            FAHHIMNI_URL = ''
+            GEMINI_MODEL = 'gemini-3.8-flash'
+          }
+          $json = $settings | ConvertTo-Json -Compress
+          Set-Content -Path config.js -Value "window.MINA_CONFIG = $json;" -Encoding utf8NoBOM
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  build-windows-installer:
+    needs: deploy
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      MINA_APP_URL: ${{ needs.deploy.outputs.site_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure hosted application URL
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MINA_APP_URL) -or -not $env:MINA_APP_URL.StartsWith('https://')) {
+            throw 'GitHub Pages did not return a valid HTTPS application URL.'
+          }
+          $json = @{ url = $env:MINA_APP_URL } | ConvertTo-Json
+          Set-Content -Path electron/app-url.json -Value $json -Encoding utf8NoBOM
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install desktop build dependencies
+        working-directory: electron
+        run: npm install --no-audit --no-fund
+      - name: Build Windows installer
+        working-directory: electron
+        run: npm run build:win
+      - name: Upload EXE installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mina-Student-AI-Windows-Installer
+          path: electron/dist/*.exe
+          if-no-files-found: error
+          retention-days: 30

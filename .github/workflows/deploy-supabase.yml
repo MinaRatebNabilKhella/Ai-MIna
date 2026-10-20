@@ -1,0 +1,60 @@
+name: Deploy Supabase database and functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/deploy-supabase.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate required settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF GEMINI_API_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing GitHub secret/variable: $name" >&2
+              exit 1
+            fi
+          done
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Apply database migrations
+        run: supabase db push --linked
+      - name: Set server-side API secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase secrets set \
+            "GEMINI_API_KEY=${GEMINI_API_KEY}" \
+            "GEMINI_MODEL=gemini-3.8-flash" \
+            --project-ref "$SUPABASE_PROJECT_REF"
+          if [[ -n "${YOUTUBE_API_KEY:-}" ]]; then
+            supabase secrets set "YOUTUBE_API_KEY=${YOUTUBE_API_KEY}" --project-ref "$SUPABASE_PROJECT_REF"
+          else
+            echo "YOUTUBE_API_KEY was not provided; specific YouTube recommendations will stay disabled until it is set." 
+          fi
+      - name: Deploy AI function
+        run: supabase functions deploy ai-chat --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Deploy YouTube recommendations function
+        run: supabase functions deploy youtube-recommendations --project-ref "$SUPABASE_PROJECT_REF"
